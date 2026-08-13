@@ -1,0 +1,270 @@
+name: Publish
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Publishes `@mudraid/adapter-node` to npm — the npm sibling of the PyPI
+# publish.yml that ships with mudraid-sdk-python / mudraid-middleware-python.
+#
+# THIS FILE LIVES IN THE MONOREPO and is mirrored into the public repository
+# alongside the package, for the same reason the Python ones are: a workflow
+# maintained only in the public repo would drift from the source it publishes,
+# and the drift would be invisible until a release behaved differently from
+# the tree it came from. Publishing happens FROM the public repository so the
+# public organisation's name — not the private monorepo's — is what npm's
+# provenance display shows on the package page.
+#
+# DRY RUN BY DEFAULT. Dispatching this workflow with no inputs builds, tests,
+# packs, inspects the tarball, and reports exactly what a real publish would
+# do — including every reason it would be refused — and uploads NOTHING. Only
+# an operator who sets `publish: true` AND approves the `npm-publish`
+# environment reaches the upload step. Publishing is an operator-approved act,
+# never a side effect.
+#
+# THE CREDENTIAL IS A REFUSAL, NOT A SKIP. npm's classic trusted-publishing
+# story is younger than PyPI's; until an operator provisions npm OIDC trusted
+# publishing for this package, authentication is the NPM_TOKEN secret (a
+# granular automation token scoped to this one package). A requested publish
+# that finds the secret absent FAILS with the reason, loudly — a skipped step
+# reads as "published" to anyone scanning a green run, which is how a release
+# gets announced that never happened.
+#
+# BUILD ONCE, TEST EVERYWHERE, PUBLISH THAT. Same three-lobed shape as the
+# Python workflows: one `build` job packs the tarball; `checks` and `test` run
+# beside each other against THAT artifact; `publish` uploads the file the
+# other jobs proved, never a rebuild of it.
+#
+# SUPPORT MATRIX DISCIPLINE ("on the receipt, not the vibe"): this workflow
+# does not touch sdks/support-matrix.json. The row for this package flips from
+# 'prerelease' only after a RECORDED upload — version, registry URL,
+# uploaded_at, workflow — is written into the row's recorded_upload by a human
+# holding the receipt, exactly as the two PyPI rows were flipped on 2026-08-12.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Actually upload to npm (requires the npm-publish environment approval and NPM_TOKEN). Anything else is a dry run."
+        required: false
+        default: false
+        type: boolean
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # `npm ci`, never `npm install`: the lockfile is part of what review
+      # approved, and a resolver allowed to re-solve on release day publishes
+      # an artifact nobody reviewed.
+      - name: Build and pack
+        run: |
+          npm ci
+          npm run build
+          mkdir -p dist-tarball
+          npm pack --pack-destination dist-tarball
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-tarball
+          path: dist-tarball/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Everything that can be wrong with a tarball without a single test failing.
+  # Runs beside `test` rather than after it: independent questions, and
+  # finding out about a forbidden file only once three Node versions have
+  # finished wastes the one thing a release day has least of.
+  #
+  # NOTHING HERE MAY REACH OUTSIDE THE PACKAGE DIRECTORY. This workflow runs
+  # in the mirrored public repository, which contains this package and nothing
+  # else — no monorepo scripts/, no workspace config. inspect_tarball.mjs is
+  # Node standard library only for exactly that reason.
+  # ───────────────────────────────────────────────────────────────────────────
+  checks:
+    name: Typecheck, tarball contents and dependency audit
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-tarball
+          path: dist-tarball/
+
+      - name: Typecheck
+        run: |
+          npm ci
+          npm run typecheck
+
+      # What is IN the artifact, which no test can tell you: vitest imports
+      # from src/, tsc reads the tree, and neither ever opens the archive.
+      # Two failure directions, both silent — an entry point that should ship
+      # and does not (dist/index.js, which every consumer import names), and a
+      # file that ships and should not (.npmrc, .env — published to everyone,
+      # and npm blocks re-publishing a version number even after unpublish).
+      - name: Inspect what the tarball actually contains
+        run: node .github/inspect_tarball.mjs contents dist-tarball
+
+      # Audit the SHIPPED dependency set — production dependencies only, what
+      # a customer's install resolves — not the dev toolchain the repository
+      # happens to build with. Otherwise vitest's dependency tree lands in the
+      # report, and a finding about a tool nobody ships reads exactly like a
+      # finding about the package. (This package currently ships zero runtime
+      # dependencies; the step is the statement that this stays audited, not
+      # assumed.)
+      - name: Audit the shipped dependency set
+        run: npm audit --omit=dev --audit-level=low
+
+  test:
+    name: Test the packed tarball on Node ${{ matrix.node-version }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # `engines` claims `node>=20` and the support matrix repeats it. A range
+      # is a promise to a resolver: npm will happily install this package on
+      # every current release line the range admits, so every current line
+      # gets exercised — one Node 20 job would be evidence about 20 read as
+      # evidence about the range. fail-fast off so a single-version break
+      # reports as a single-version break.
+      matrix:
+        node-version: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-tarball
+          path: dist-tarball/
+
+      - name: Run the suite (source tree — includes the packaging guards)
+        run: |
+          npm ci
+          npm test
+
+      # The npm analogue of "test against the installed wheel": install the
+      # packed tarball into a clean directory and import it the way a customer
+      # does. A package that passes in-tree and fails once installed is the
+      # classic packaging defect — this exact package shipped its build to
+      # dist/src/ while the manifest promised dist/, and only this step's
+      # shape of test could ever have said so.
+      - name: Install the packed tarball into a clean project and import it
+        run: |
+          TARBALL="$(readlink -f dist-tarball/*.tgz)"
+          mkdir -p /tmp/clean-consumer && cd /tmp/clean-consumer
+          npm init -y > /dev/null
+          npm install "$TARBALL"
+          node --input-type=module -e "
+            import assert from 'node:assert/strict';
+            const adapter = await import('@mudraid/adapter-node');
+            assert.equal(typeof adapter.evaluateV2, 'function');
+            assert.equal(adapter.ADAPTER_DECISION_CONTRACT_VERSION, 'mudraid.adapter.decision/1');
+            console.log('installed artifact imports; contract', adapter.ADAPTER_DECISION_CONTRACT_VERSION);
+          "
+
+      # Inventoried from the tree the tests just ran in, on one Node line
+      # rather than three — an SBOM from a freshly resolved environment would
+      # describe packages nothing exercised.
+      - name: Generate SBOM
+        if: matrix.node-version == '20'
+        run: npx --yes @cyclonedx/cyclonedx-npm --omit dev --output-file sbom.json
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.node-version == '20'
+        with:
+          name: sbom
+          path: sbom.json
+
+  publish:
+    name: Publish (approval required)
+    needs: [test, checks]
+    runs-on: ubuntu-latest
+    # The approval gate, mirroring the Python packages' `pypi-publish`
+    # environment. Without it, anything able to trigger this workflow could
+    # publish an irreversible version — npm blocks re-publishing a version
+    # number even after unpublish.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # `npm publish --provenance` signs over the Actions OIDC identity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-tarball
+          path: dist-tarball/
+
+      # `release: published` reaches here with no inputs, so every gate below
+      # requires the explicit choice rather than excluding the other one — a
+      # default-to-production publish on an unexpected trigger is the mistake
+      # this shape prevents. With publish unset this step reports what a real
+      # run would refuse over, and refuses nothing.
+      - name: Preflight the release candidate
+        env:
+          PUBLISH_INTENT: ${{ inputs.publish == true }}
+        run: node .github/inspect_tarball.mjs preflight dist-tarball
+
+      # ABSENCE OF THE CREDENTIAL IS A REFUSAL, NOT A SKIP. A conditional
+      # publish step that quietly no-ops when the secret is missing produces a
+      # green run indistinguishable from a release; this fails with the reason
+      # instead. The secret is only ever read into the environment — never
+      # echoed, never written to a file.
+      - name: Refuse a requested publish without a credential
+        if: inputs.publish == true
+        env:
+          NPM_TOKEN_PRESENT: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          if [ "${NPM_TOKEN_PRESENT}" != "true" ]; then
+            echo "::error::publish=true was requested but the NPM_TOKEN secret is not configured in the npm-publish environment. This is a refusal, not a skip: provision a granular automation token scoped to @mudraid/adapter-node (or npm OIDC trusted publishing) and re-run. Nothing was published."
+            exit 1
+          fi
+
+      - name: Dry run (default)
+        if: inputs.publish != true
+        run: |
+          echo "Dry run: nothing is uploaded. The preflight above is the full"
+          echo "statement of what a real publish would do. To publish for real:"
+          echo "  1. resolve every preflight blocker in a reviewed commit,"
+          echo "  2. dispatch with publish=true,"
+          echo "  3. approve the npm-publish environment when prompted,"
+          echo "  4. record the upload receipt in sdks/support-matrix.json —"
+          echo "     the row flips on the receipt, not on this run going green."
+
+      # Publish THE artifact the other jobs proved — the downloaded tarball,
+      # not a rebuild of the working directory. --provenance publishes a
+      # Sigstore attestation binding the tarball to this repository, workflow
+      # and run (the npm counterpart of actions/attest-build-provenance +
+      # PyPI Trusted Publishing on the Python side).
+      - name: Publish to npm (provenance)
+        if: inputs.publish == true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "$(readlink -f dist-tarball/*.tgz)" --provenance --access public
+
+      - name: The receipt to record
+        if: inputs.publish == true
+        run: |
+          echo "Published. Now write the receipt into sdks/support-matrix.json:"
+          echo "  recorded_upload.version      = the version just uploaded"
+          echo "  recorded_upload.registry_url = https://www.npmjs.com/package/@mudraid/adapter-node"
+          echo "  recorded_upload.uploaded_at  = $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "  recorded_upload.workflow     = this workflow, npm-publish environment approval"
+          echo "support_status flips from 'prerelease' in THAT commit — on the receipt, not the vibe."

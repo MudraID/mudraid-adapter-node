@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The base config sets `rootDir: "."` so editors and vitest can see
+    // `test/` too; with `src/**/*` alone in scope that root emitted
+    // `dist/src/index.js` while package.json's `main`/`types`/`exports`
+    // all point at `dist/index.js`. Every in-tree test still passed —
+    // they import from `src/` — so the broken entry points were invisible
+    // until someone installed the packed tarball. `rootDir: "src"` makes
+    // the compiler emit the layout the manifest already promises; the
+    // publish workflow's clean-install import smoke test now holds this.
+    "rootDir": "src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["test/**/*"]
+}
