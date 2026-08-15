@@ -6,6 +6,21 @@ adapters host: given the facts of a request, it yields a typed decision, and
 `shouldForward(decision)` is the single yes/no a host consults before letting
 the request proceed.
 
+> **What this loop decides, and what it does not. Read this before hosting it.**
+>
+> MudraID V2 provides live action authorization for MCP Streamable HTTP tool
+> calls. MCP transport and session requests remain subject to the MCP server's
+> normal HTTP/OAuth authentication. For ordinary REST APIs, use MudraID's
+> route/scope middleware, which enforces the configured HTTP method and
+> route—including GET and DELETE.
+>
+> Concretely: `evaluateV2` treats `GET`/`HEAD`/`OPTIONS` as Streamable-HTTP
+> transport and `DELETE` as MCP session control, and calls `/decide` for
+> neither; MCP control and discovery messages (`initialize`, `ping`,
+> `tools/list`) pass a protected surface without a `/decide` verdict. A host
+> that points this loop at an ordinary REST surface is not authorizing that
+> surface's reads and deletes.
+
 ## The non-negotiable property: deny-closed
 
 Every path that is not a bound V2 **allow** yields a decision that
