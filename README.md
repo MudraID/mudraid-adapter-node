@@ -1,80 +1,34 @@
-# `@mudraid/adapter-node` — framework-neutral enforcement decision core
+# MudraID Node enforcement adapter
 
-The portable TypeScript/Node implementation of the MudraID **adapter-decision
-V2** control loop (EP-120-US-05, first slice). It is the decision core other
-adapters host: given the facts of a request, it yields a typed decision, and
-`shouldForward(decision)` is the single yes/no a host consults before letting
-the request proceed.
+A framework-neutral decision core and authenticated authority client for MCP Streamable HTTP tool calls. It is also the decision core used by the MudraID sidecar.
 
-> **What this loop decides, and what it does not. Read this before hosting it.**
->
-> MudraID V2 provides live action authorization for MCP Streamable HTTP tool
-> calls. MCP transport and session requests remain subject to the MCP server's
-> normal HTTP/OAuth authentication. For ordinary REST APIs, use MudraID's
-> route/scope middleware, which enforces the configured HTTP method and
-> route—including GET and DELETE.
->
-> Concretely: `evaluateV2` treats `GET`/`HEAD`/`OPTIONS` as Streamable-HTTP
-> transport and `DELETE` as MCP session control, and calls `/decide` for
-> neither; MCP control and discovery messages (`initialize`, `ping`,
-> `tools/list`) pass a protected surface without a `/decide` verdict. A host
-> that points this loop at an ordinary REST surface is not authorizing that
-> surface's reads and deletes.
+## Scope
 
-## The non-negotiable property: deny-closed
+Protected tool calls require verified configuration and a signed live decision. MCP transport/session requests (`GET`, `HEAD`, `OPTIONS`, `DELETE`) and control/discovery messages (`initialize`, `ping`, `tools/list`) do not receive a tool authorization decision; the host must enforce its normal HTTP/OAuth authentication. For ordinary REST APIs, use route/scope middleware.
 
-Every path that is not a bound V2 **allow** yields a decision that
-`shouldForward` refuses: no active bundle, a `/decide` seam that is
-unavailable or answers malformedly, an unmapped action, an invalid or
-oversized tool name, a framing violation, an explicit deny. An unconfigured
-loop **denies**; it does not fail open.
+## Authority client
 
-## Public surface
+`HttpAuthority` accepts the MudraID HTTPS origin, a registered adapter credential and the exact platform/environment/resource binding. It verifies signed configuration, active version/digest, time windows and signed decisions. Adapter credentials remain separate from caller OAuth tokens. Requests and response sizes and timeouts are bounded; decisions are not retried.
 
-- **Typed vocabulary** (`types.ts`): `Decision`, `Outcome`, `AdapterCode`,
-  `ReasonTier`, `RequestFacts`, `DecideClient`/`DecideResult`/`DecideStatus`,
-  `TrustedContextHeader`, plus the pinned
-  `ADAPTER_DECISION_CONTRACT_VERSION`, `MAX_TOOL_NAME_LEN` and
-  `RESERVED_HEADER_PREFIX` constants.
-- **Control loop** (`controlLoop.ts`): `evaluateV2`, `shouldForward`,
-  `newDecisionId`, `validToolName`, and the reserved-header discipline —
-  `isReservedHeader` / `normalizeStrippedHeaders`, so caller-supplied values
-  for trusted-context headers never survive into evaluation or forwarding.
-- **`/decide` seam** (`decideClient.ts`): the decision service is an injected
-  `DecideClient`. This slice ships `staticDecideClient` and
-  `throwingDecideClient` as test doubles; the real HTTP client is a deferred
-  remainder, named below.
+Each `decide` call receives the exact body bytes, content type, HTTP method/path and caller authorization. Its signed execution digest binds those inputs and the action/mapping/scopes/configuration. Missing, expired, tampered or mismatched decisions fail closed. The host must own the request snapshot and forward only those authorized bytes; the decision client cannot control application code that ignores its result. The sidecar implements that snapshot and forwarding boundary.
 
-## What is deliberately not here (yet)
+The binding establishes the requested operation. It does not establish independent business facts, such as account ownership or an approved beneficiary, or prove a committed business execution. Trusted business-fact profiles/projection and live deployment qualification remain pending.
 
-The framework hooks (Express/Fastify/MCP middleware), the real HTTP `/decide`
-client, and live fact extraction are **deferred remainders** of this first
-slice. The package performs no network I/O and holds no credentials.
+## Control loop and testing seams
 
-## Who consumes it
+The package exports `evaluateV2`, `shouldForward`, the request/decision types, reserved-header stripping helpers and the authenticated authority client. The existing function name is an API identifier, not a separate product choice. `staticDecideClient` and `throwingDecideClient` are test seams; they must not replace authenticated authority in a deployed enforcement path.
 
-`@mudraid/sidecar` — the customer-hosted enforcing reverse proxy — hosts this
-loop as its decision core. Application-embedded framework adapters are the
-intended later consumers.
+Missing or stale configuration, an unmapped tool, framing errors, denied authority and authority outages refuse protected calls. The host must prevent direct upstream access that would bypass enforcement.
 
-## Development
+## Development and distribution
 
-```bash
+```sh
 npm ci
-npm test            # vitest, includes packaging guards
-npm run build       # tsc -p tsconfig.build.json → dist/
+npm run typecheck
+npm test
+npm run build
 ```
 
-The packaging tests hold `package.json` to the version the MudraID adapter
-support matrix declares for `@mudraid/adapter-node`, and the tarball
-inspector (`.github/inspect_tarball.mjs`) proves the published artifact
-carries exactly the promised contents.
+The package builds compiled JavaScript and TypeScript declarations. Release checks inspect the actual tarball and its installed entry points. Publication remains gated by the protected environment and the package's support record; a local test pass is not a publication receipt.
 
-## Security
-
-See [SECURITY.md](./SECURITY.md). Report privately to **security@mudraid.ai**;
-never through a public issue.
-
-## License
-
-Apache-2.0 — see [LICENSE](./LICENSE).
+Framework-specific Express/Fastify hooks, durable execution receipts and broader deployment/chaos qualification remain separate work. See [SECURITY.md](./SECURITY.md) for private reporting and [LICENSE](./LICENSE) for Apache-2.0 terms.

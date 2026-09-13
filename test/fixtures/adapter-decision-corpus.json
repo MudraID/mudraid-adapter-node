@@ -467,6 +467,48 @@
       }
     },
     {
+      "id": "hostile_resources_list_denied",
+      "category": "hostile",
+      "description": "resources/list is NOT a public method: resource enumeration on a protected surface is disclosure and denies (403) on every adapter. Pins the SSC-05 default.",
+      "facts": {
+        "protected": true,
+        "bundle_active": true,
+        "method": "POST",
+        "json_shape": "object",
+        "jsonrpc": "2.0",
+        "rpc_method": "resources/list"
+      },
+      "expect": {
+        "outcome": "deny",
+        "reason_code": "message_not_allowed",
+        "reason_tier": "transport",
+        "http_status": 403,
+        "adapter_code": "ENFORCE_MESSAGE_NOT_ALLOWED",
+        "stripped_reserved_headers": []
+      }
+    },
+    {
+      "id": "hostile_prompts_list_denied",
+      "category": "hostile",
+      "description": "prompts/list is NOT a public method: prompt enumeration on a protected surface is disclosure and denies (403) on every adapter. Pins the SSC-05 default.",
+      "facts": {
+        "protected": true,
+        "bundle_active": true,
+        "method": "POST",
+        "json_shape": "object",
+        "jsonrpc": "2.0",
+        "rpc_method": "prompts/list"
+      },
+      "expect": {
+        "outcome": "deny",
+        "reason_code": "message_not_allowed",
+        "reason_tier": "transport",
+        "http_status": 403,
+        "adapter_code": "ENFORCE_MESSAGE_NOT_ALLOWED",
+        "stripped_reserved_headers": []
+      }
+    },
+    {
       "id": "hostile_unmapped_action_denied",
       "category": "hostile",
       "description": "A tools/call with no exact canonical mapping denies (403), never fuzzy-matched.",
@@ -637,7 +679,7 @@
     {
       "id": "hostile_reserved_header_injection_stripped_on_deny",
       "category": "hostile",
-      "description": "Client forges an x-mudraid-* trusted-context header on a request that will be DENIED (unmapped action). The header is stripped before evaluation regardless \u2014 trusted context is never accepted as an input fact, on any path.",
+      "description": "Client forges an x-mudraid-* trusted-context header on a request that will be DENIED (unmapped action). The header is stripped before evaluation regardless — trusted context is never accepted as an input fact, on any path.",
       "facts": {
         "protected": true,
         "bundle_active": true,

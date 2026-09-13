@@ -48,12 +48,15 @@ const CONTROL_VERBS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS', 'D
  * a tool invocation (mirrors the plugin `public_methods` default). Client
  * `notifications/*` are handled by prefix, separately.
  */
+// Pre-launch scan SSC-05: `resources/list` and `prompts/list` used to be here
+// while the Kong plugin and the Python middleware denied them, so the same
+// client got 403 from one deployed adapter and a pass-through from another.
+// Enumeration on a protected surface is disclosure; the conservative three
+// are the contract, pinned by two corpus fixtures every runner consumes.
 const DEFAULT_PUBLIC_METHODS: ReadonlySet<string> = new Set([
   'initialize',
   'ping',
   'tools/list',
-  'resources/list',
-  'prompts/list',
 ]);
 
 /**

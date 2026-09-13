@@ -33,3 +33,6 @@ export {
 } from './controlLoop.js';
 
 export { staticDecideClient, throwingDecideClient } from './decideClient.js';
+
+export { verifyBundle, type BundleBinding, type VerifiedBundle } from './signedBundle.js';
+export { HttpAuthority, type AuthorityOptions, type InvocationContext } from './httpAuthority.js';
