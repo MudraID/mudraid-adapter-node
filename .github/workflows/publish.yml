@@ -117,6 +117,12 @@ jobs:
       - name: Inspect what the tarball actually contains
         run: node .github/inspect_tarball.mjs contents dist-tarball
 
+      # Refuse an unreleasable candidate before asking for owner approval.
+      - name: Preflight before protected approval
+        env:
+          PUBLISH_INTENT: ${{ inputs.publish == true }}
+        run: node .github/inspect_tarball.mjs preflight dist-tarball
+
       # Audit the SHIPPED dependency set — production dependencies only, what
       # a customer's install resolves — not the dev toolchain the repository
       # happens to build with. Otherwise vitest's dependency tree lands in the

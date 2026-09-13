@@ -92,6 +92,9 @@ describe('version single-source', () => {
 });
 
 describe('packaging metadata', () => {
+  it('declares the public publisher repository required by npm provenance', () => {
+    expect(manifest.repository).toEqual({type: 'git', url: 'git+https://github.com/MudraID/mudraid-adapter-node.git'});
+  });
   it('either declares a licence and ships its text, or explicitly declares none', () => {
     // Analogue of the Python "classifier and marker agree" guard: a licence
     // id nobody can read the text of is worse than UNLICENSED, because it is
