@@ -6,6 +6,17 @@ import { harness } from './authorityFixtures.js';
 const invocation = {presentedAuthorization: 'Bearer caller-credential', httpMethod: 'POST', path: '/mcp', contentType: 'application/json', body: Buffer.from('{}')};
 
 describe('authenticated authority', () => {
+  it('projects the signed bundle surface onto the strict decision wire contract', async () => {
+    const {authority, calls} = harness();
+    expect(await authority.refresh()).toBe(true);
+    expect(authority.bundle?.surface['domain']).toBe('example.com');
+    await authority.decide('read', invocation);
+    expect(calls.find(c => c.path === 'decide')?.body.surface).toEqual({
+      platform_id: binding.platformId,
+      environment: binding.environment,
+      canonical_resource_uri: binding.resource,
+    });
+  });
   it.each([false, true])('transmits exact bounded bytes only for a signed argument profile: %s', async withArguments => {
     const {authority, calls} = harness('allow', undefined, withArguments);
     await authority.refresh();
