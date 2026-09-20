@@ -64,7 +64,8 @@ jobs:
       # an artifact nobody reviewed.
       - name: Build and pack
         run: |
-          npm ci
+          npm audit --package-lock-only --audit-level=high
+          npm ci --ignore-scripts
           npm run build
           mkdir -p dist-tarball
           npm pack --pack-destination dist-tarball
