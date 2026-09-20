@@ -60,10 +60,18 @@ describe('authenticated authority', () => {
     expect(decisionCalls[0]?.body.action.action_key).toBe('tasks:read');
     expect(calls.find(c => c.path === 'keys')?.auth).toBeNull();
   });
-  it.each(['unsigned', 'replayed', 'altered', 'foreign_action', 'expired_deadline', 'missing_deadline', 'foreign_body', 'missing_execution'])('refuses %s decision', async mode => {
+  it.each(['unsigned', 'replayed', 'altered', 'foreign_action', 'forged_expired_deadline', 'missing_deadline', 'foreign_body', 'missing_execution'])('refuses %s decision', async mode => {
     const {authority} = harness(mode);
     expect(await authority.refresh()).toBe(true);
     expect((await authority.decide('read', invocation)).status).toBe('error');
+  });
+  it('identifies a verified expired decision without retrying or reporting an observation', async () => {
+    const {authority, calls} = harness('expired_deadline');
+    expect(await authority.refresh()).toBe(true);
+    expect(await authority.decide('read', invocation)).toEqual({status: 'expired'});
+    await authority.refresh();
+    expect(calls.filter(c => c.path === 'decide')).toHaveLength(1);
+    expect(calls.filter(c => c.path === 'acknowledgements').every(c => c.body.first_observed_decision_at === undefined)).toBe(true);
   });
   it.each(['tampered', 'unreachable'])('never activates %s bootstrap', async mode => {
     const {authority, calls} = harness(mode);

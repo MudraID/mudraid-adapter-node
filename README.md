@@ -32,3 +32,15 @@ npm run build
 The package builds compiled JavaScript and TypeScript declarations. Release checks inspect the actual tarball and its installed entry points. Publication remains gated by the protected environment and the package's support record; a local test pass is not a publication receipt.
 
 Framework-specific Express/Fastify hooks, durable execution receipts and broader deployment/chaos qualification remain separate work. See [SECURITY.md](./SECURITY.md) for private reporting and [LICENSE](./LICENSE) for Apache-2.0 terms.
+
+
+### Authorization expires before forwarding
+
+A verified decision that arrives after its deadline is refused with HTTP 503,
+`ENFORCE_DECIDE_UNAVAILABLE`, and reason `deadline_exceeded`. The message explains
+that authorization expired and this attempt was not forwarded. This differs
+from an unreachable authority; it does not mean that permission was denied.
+The adapter does not automatically retry. A deliberate retry must obtain a fresh
+decision. Use application-level idempotency for operations that could already
+have executed in an earlier attempt; this error makes no claim about those
+other attempts. Never reuse an expired decision or disable expiry validation.
